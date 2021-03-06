@@ -442,7 +442,7 @@ workflows:
       a merge in master
     meta:
       bitrise.io:
-        stack: 12.4.x
+        stack: 12.5.x
     steps:
     - script@1:
         inputs:
