@@ -4,22 +4,39 @@ set -e
 
 BUILD_LOG_FILE="$1"
 TYPE_LOG_FILE="$2"
-THREESHOLD_UNIT_TEST=350
-THREESHOLD_XCUITEST=350
+# Raised for the Xcode 27 canary: Xcode 27 reports new diagnostic categories
+# (#ImplicitStrongCapture, #SendingClosureRisksDataRace, #NoUseUnstructuredThrowingTask,
+# @Sendable on type aliases) on unchanged code, taking the count from 3 to 52.
+# Tracked in https://mozilla-hub.atlassian.net/browse/FXIOS-16729 - restore to 3 once
+# those warnings are fixed.
+THRESHOLD_UNIT_TEST=18
+THRESHOLD_XCUITEST=18
 
 
-WARNING_COUNT=`egrep '^(\/.+:[0-9+:[0-9]+:.|warning:|⚠️|ld: warning:|<unknown>:0: warning:|fatal|===)' "$BUILD_LOG_FILE" | uniq | wc -l`
+WARNINGS=$(
+  grep -E -v 'SourcePackages/checkouts' "$BUILD_LOG_FILE" \
+  | grep -E '^[^ ]+:[0-9]+:[0-9]+: warning:' \
+  | uniq
+)
 
-if  [ $2 == "unit-test" ]; then
-    if [ $WARNING_COUNT -ge $THREESHOLD_UNIT_TEST ]; then
-        echo "Number of warnings is: $WARNING_COUNT. This is greater than unit-test threshold: $THREESHOLD_UNIT_TEST"
+WARNING_COUNT=$(printf '%s\n' "$WARNINGS" | wc -l)
+
+if [ $2 == "unit-test" ]; then
+    if [ $WARNING_COUNT -gt $THRESHOLD_UNIT_TEST ]; then
+        echo "Number of warnings is: $WARNING_COUNT. This is greater than unit-test threshold: $THRESHOLD_UNIT_TEST"
     else
-        echo "Number of warnings is: $WARNING_COUNT. This is lower than unit-test threshold: $THREESHOLD_UNIT_TEST"
+        echo "Number of warnings is: $WARNING_COUNT. This is lower than unit-test threshold: $THRESHOLD_UNIT_TEST"
     fi
 else
-    if [ $WARNING_COUNT -ge $THREESHOLD_XCUITEST ]; then
-        echo "Number of warnings is: $WARNING_COUNT. This is greater than build threshold: $THREESHOLD_XCUITEST"
+    if [ $WARNING_COUNT -gt $THRESHOLD_XCUITEST ]; then
+        echo "Number of warnings is: $WARNING_COUNT. This is greater than build threshold: $THRESHOLD_XCUITEST"
     else
-        echo "Number of warnings is: $WARNING_COUNT. This is lower than build threshold: $THREESHOLD_XCUITEST"
+        echo "Number of warnings is: $WARNING_COUNT. This is lower than build threshold: $THRESHOLD_XCUITEST"
     fi
+fi
+
+# Print the actual warnings for debugging
+if (( WARNING_COUNT > 0 )); then
+  echo -e "\n--- Warnings ---"
+  printf '%s\n' "$WARNINGS"
 fi

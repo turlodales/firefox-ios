@@ -1,87 +1,53 @@
-Firefox for iOS [![codebeat badge](https://codebeat.co/badges/67e58b6d-bc89-4f22-ba8f-7668a9c15c5a)](https://codebeat.co/projects/github-com-mozilla-firefox-ios) [![codecov](https://codecov.io/gh/mozilla-mobile/firefox-ios/branch/main/graph/badge.svg)](https://codecov.io/gh/mozilla-mobile/firefox-ios/branch/main)
-===============
+# Firefox for iOS and Focus iOS
 
-Download on the [App Store](https://apps.apple.com/app/firefox-web-browser/id989804926).
+Download [Firefox iOS](https://apps.apple.com/app/firefox-web-browser/id989804926) and [Focus iOS](https://itunes.apple.com/app/id1055677337) on the App Store.
 
+<table>
+  <tr>
+    <th style="border: none;"><strong>Firefox iOS</strong></th>
+    <td style="border: none;"><img src="https://img.shields.io/badge/Xcode-27.1-blue?logo=Xcode&logoColor=white" alt="Firefox-iOS"></td>
+    <td style="border: none;"><img src="https://img.shields.io/badge/Swift-6.2-red?logo=Swift&logoColor=white" alt="Firefox-iOS"></td>
+    <td style="border: none;"><img src="https://img.shields.io/badge/iOS-15.0+-green?logo=apple&logoColor=white" alt="Firefox-iOS"></td>
+  </tr>
+  <tr>
+    <th style="border: none;"><strong>Focus iOS</strong></th>
+    <td style="border: none;"><img src="https://img.shields.io/badge/Xcode-27.1-blue?logo=Xcode&logoColor=white" alt="Focus-iOS"></td>
+    <td style="border: none;"><img src="https://img.shields.io/badge/Swift-6.2-red?logo=Swift&logoColor=white" alt="Focus-iOS"></td>
+    <td style="border: none;"><img src="https://img.shields.io/badge/iOS-15.0+-green?logo=apple&logoColor=white" alt="Focus-iOS"></td>
+  </tr>
+</table>
 
-This branch (main)
------------
+## Building the code
 
-This branch works only with [Xcode 13.4.1](https://developer.apple.com/download/all/?q=xcode), Swift 5.5.2 and supports iOS 13 and above.
+This is a monolithic-repository, containing both the Firefox and Focus iOS projects.
 
-*Please note:* Both Intel and M1 macs are supported 🎉 and we use swift package manager.
+As this is an iOS project, it is required to have Xcode on your system, and you should check that `xcode-select -p` points to `/Applications/Xcode.app/Contents/Developer` (or however you've named your `Xcode.app`).
 
-Please make sure you aim your pull requests in the right direction.
+### Automatic Installation (Recommended)
+Steps: [Automated Project Setup with FXIOS](https://github.com/mozilla-mobile/firefox-ios/wiki/Automated-Project-Setup-with-FXIOS)
 
-For bug fixes and features for a specific release, use the version branch.
+### Manual Installation
 
-Getting involved
-----------------
+1. Clone the repo locally
+1. For their related build instructions, please follow the respective project readmes:
 
-Want to contribute but don't know where to start? Here is a list of [issues that are contributor friendly](https://github.com/mozilla-mobile/firefox-ios/labels/Contributor%20OK)
+- [Firefox for iOS](./firefox-ios/README.md)
+- [Focus iOS](./focus-ios/README.md)
 
-Building the code
------------------
+## Getting involved
 
-1. Install the latest [Xcode developer tools](https://developer.apple.com/xcode/downloads/) from Apple.
-1. Install, [Brew](https://brew.sh), Node, and a Python3 virtualenv for localization scripts:
-    ```shell
-    brew update
-    brew install node
-    pip3 install virtualenv
-    ```
-1. Clone the repository:
-    ```shell
-    git clone https://github.com/mozilla-mobile/firefox-ios
-    ```
-1. Install Node.js dependencies, build user scripts and update content blocker:
-    ```shell
-    cd firefox-ios
-    sh ./bootstrap.sh
-    ```
-1. Open `Client.xcodeproj` in Xcode.
-1. Build the `Fennec` scheme in Xcode.
+We encourage you to participate in those open source projects. We love Pull Requests, Issue Reports, Feature Requests or any kind of positive contribution. Please read the [Mozilla Community Participation Guidelines](https://www.mozilla.org/en-US/about/governance/policies/participation/) and our [Contributing guidelines](https://github.com/mozilla-mobile/firefox-ios/blob/main/CONTRIBUTING.md) first.
 
-Note: In case you have dependencies issues with SPM, you can try to reset package caches and resolve package version.
+- You can [file a new issue](https://github.com/mozilla-mobile/firefox-ios/issues/new/choose) or research [existing bugs](https://github.com/mozilla-mobile/firefox-ios/issues)
 
-Building User Scripts
------------------
+If more information is required or you have any questions then we suggest reaching out to us via:
 
-User Scripts (JavaScript injected into the `WKWebView`) are compiled, concatenated, and minified using [webpack](https://webpack.js.org/). User Scripts to be aggregated are placed in the following directories:
+- Chat on Element channel [#fx-ios](https://chat.mozilla.org/#/room/#fx-ios:mozilla.org) and [#focus-ios](https://chat.mozilla.org/#/room/#focus-ios:mozilla.org) for general discussion, or write DMs to specific teammates for questions.
+- Open a [ticket](https://github.com/mozilla-mobile/firefox-ios/issues/new?template=BLANK_ISSUE) with your question.
 
-```none
-/Client
-|-- /Frontend
-    |-- /UserContent
-        |-- /UserScripts
-            |-- /AllFrames
-            |   |-- /AtDocumentEnd
-            |   |-- /AtDocumentStart
-            |-- /MainFrame
-                |-- /AtDocumentEnd
-                |-- /AtDocumentStart
-```
+Want to contribute on the codebase but don't know where to start? Here is a list of [issues that are contributor friendly](https://github.com/mozilla-mobile/firefox-ios/labels/Contributor%20OK), but make sure to read the [Contributing guidelines](https://github.com/mozilla-mobile/firefox-ios/blob/main/CONTRIBUTING.md) first.
 
-This reduces the total possible number of User Scripts down to four. The compiled output from concatenating and minifying the User Scripts placed in these folders resides in `/Client/Assets` and are named accordingly:
-
-* `AllFramesAtDocumentEnd.js`
-* `AllFramesAtDocumentStart.js`
-* `MainFrameAtDocumentEnd.js`
-* `MainFrameAtDocumentStart.js`
-
-To simplify the build process, these compiled files are checked-in to this repository. When adding or editing User Scripts, these files can be re-compiled with `webpack` manually. This requires Node.js to be installed, and all required `npm` packages can be installed by running `npm install` in the project's root directory. User Scripts can be compiled by running the following `npm` command in the root directory of the project:
-
-```shell
-npm run build
-```
-
-Contributing
------------------
-
-Want to contribute to this repository? Check out [Contributing Guidelines](https://github.com/mozilla-mobile/firefox-ios/blob/main/CONTRIBUTING.md)
-
-License
------------------
+## License
 
     This Source Code Form is subject to the terms of the Mozilla Public
     License, v. 2.0. If a copy of the MPL was not distributed with this

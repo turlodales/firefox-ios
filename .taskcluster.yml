@@ -2,11 +2,12 @@
 version: 1
 reporting: checks-v1
 policy:
-    pullRequests: public
+    pullRequests: public_restricted
 tasks:
     - $let:
         # Project-specific trustDomain
         trustDomain: mobile
+        canonicalRepo: https://github.com/mozilla-mobile/firefox-ios
 
         # Github events have this stuff in different places...
         ownerEmail:
@@ -17,7 +18,7 @@ tasks:
                 then: '${event.pusher.email}'
                 # Assume Pull Request
                 else:
-                    $if: 'tasks_for == "github-pull-request"'
+                    $if: 'tasks_for[:19] == "github-pull-request"'
                     then: '${event.pull_request.user.login}@users.noreply.github.com'
                     else:
                         $if: 'tasks_for == "github-release"'
@@ -26,7 +27,7 @@ tasks:
             $if: 'tasks_for in ["github-push", "github-release"]'
             then: '${event.repository.html_url}'
             else:
-                $if: 'tasks_for == "github-pull-request"'
+                $if: 'tasks_for[:19] == "github-pull-request"'
                 then: '${event.pull_request.base.repo.html_url}'
                 else:
                     $if: 'tasks_for in ["cron", "action"]'
@@ -35,7 +36,7 @@ tasks:
             $if: 'tasks_for in ["github-push", "github-release"]'
             then: '${event.repository.html_url}'
             else:
-                $if: 'tasks_for == "github-pull-request"'
+                $if: 'tasks_for[:19] == "github-pull-request"'
                 then: '${event.pull_request.head.repo.html_url}'
                 else:
                     $if: 'tasks_for in ["cron", "action"]'
@@ -44,13 +45,13 @@ tasks:
             $if: 'tasks_for in ["github-push", "github-release"]'
             then: '${event.repository.name}'
             else:
-                $if: 'tasks_for == "github-pull-request"'
+                $if: 'tasks_for[:19] == "github-pull-request"'
                 then: '${event.pull_request.head.repo.name}'
                 else:
                     $if: 'tasks_for in ["cron", "action"]'
                     then: '${repository.project}'
         head_branch:
-            $if: 'tasks_for == "github-pull-request"'
+            $if: 'tasks_for[:19] == "github-pull-request"'
             then: ${event.pull_request.head.ref}
             else:
                 $if: 'tasks_for == "github-push"'
@@ -65,7 +66,7 @@ tasks:
             $if: 'tasks_for == "github-push"'
             then: '${event.after}'
             else:
-                $if: 'tasks_for == "github-pull-request"'
+                $if: 'tasks_for[:19] == "github-pull-request"'
                 then: '${event.pull_request.head.sha}'
                 else:
                     $if: 'tasks_for == "github-release"'
@@ -84,31 +85,33 @@ tasks:
                 $if: 'tasks_for in ["cron", "action"]'
                 then: '${ownTaskId}'
         pullRequestAction:
-            $if: 'tasks_for == "github-pull-request"'
+            $if: 'tasks_for[:19] == "github-pull-request"'
             then: ${event.action}
             else: 'UNDEFINED'
         releaseAction:
             $if: 'tasks_for == "github-release"'
             then: ${event.action}
             else: 'UNDEFINED'
+        isPullRequest:
+            $eval: 'tasks_for[:19] == "github-pull-request"'
       in:
-        $if: >
-          tasks_for in ["action", "cron"]
-          || (tasks_for == "github-pull-request" && pullRequestAction in ["opened", "reopened", "synchronize"])
-          || (tasks_for == "github-push" && head_branch[:10] != "refs/tags/")
-          || (tasks_for == "github-release" && releaseAction == "published")
-        then:
-            $let:
-                level:
-                    $if: 'tasks_for in ["github-push", "github-release", "action", "cron"] && repoUrl == "https://github.com/mozilla-mobile/firefox-ios"'
-                    then: '3'
-                    else: '1'
-
-                short_head_branch:
-                    $if: 'head_branch[:11] == "refs/heads/"'
-                    then: {$eval: 'head_branch[11:]'}
-            in:
-                taskId: 
+        $let:
+            level:
+                $if: 'tasks_for in ["github-push", "github-release", "action", "cron"] && repoUrl == canonicalRepo'
+                then: '3'
+                else: '1'
+            short_head_branch:
+                $if: 'head_branch[:11] == "refs/heads/"'
+                then: {$eval: 'head_branch[11:]'}
+                else: '${head_branch}'
+        in:
+            $if: >
+              tasks_for in ["action", "cron"]
+              || (isPullRequest && pullRequestAction in ["opened", "reopened", "synchronize"])
+              || (tasks_for == "github-push" && short_head_branch == "main")
+              || (tasks_for == "github-push" && short_head_branch[:8] == "release/")
+            then:
+                taskId:
                     $if: 'tasks_for != "action"'
                     then: '${ownTaskId}'
                 taskGroupId:
@@ -123,9 +126,9 @@ tasks:
                     $merge:
                         - owner: "${ownerEmail}"
                           source: '${repoUrl}/raw/${head_sha}/.taskcluster.yml'
-                        - $if: 'tasks_for in ["github-push", "github-pull-request", "github-release"]'
+                        - $if: 'isPullRequest || tasks_for in ["github-push", "github-release"]'
                           then:
-                            name: "Decision Task"
+                            name: "Decision Task (${tasks_for[7:]})"  # strip out "github-" from tasks_for
                             description: 'The task that creates all of the other tasks in the task graph'
                           else:
                             $if: 'tasks_for == "action"'
@@ -135,10 +138,10 @@ tasks:
                             else:
                                 name: "Decision Task for cron job ${cron.job_name}"
                                 description: 'Created by a [cron task](https://firefox-ci-tc.services.mozilla.com/tasks/${cron.task_id})'
-                provisionerId: "mobile-${level}"
+                provisionerId: "${trustDomain}-${level}"
                 workerType: "decision"
                 tags:
-                    $if: 'tasks_for in ["github-push", "github-pull-request"]'
+                    $if: 'tasks_for == "github-push" || isPullRequest'
                     then:
                         kind: decision-task
                     else:
@@ -152,33 +155,33 @@ tasks:
                 routes:
                     $flattenDeep:
                         - checks
-                        - $if: 'level == "3"'
+                        - $if: '!isPullRequest'
                           then:
                             - tc-treeherder.v2.${project}.${head_sha}
                             - $if: 'tasks_for == "github-push"'
                               then:
-                                - index.mobile.v2.${project}.branch.${short_head_branch}.latest.taskgraph.decision
-                                - index.mobile.v2.${project}.branch.${short_head_branch}.revision.${head_sha}.taskgraph.decision
-                                - index.mobile.v2.${project}.revision.${head_sha}.taskgraph.decision
+                                - index.${trustDomain}.v2.${project}.branch.${short_head_branch}.latest.taskgraph.decision
+                                - index.${trustDomain}.v2.${project}.branch.${short_head_branch}.revision.${head_sha}.taskgraph.decision
+                                - index.${trustDomain}.v2.${project}.revision.${head_sha}.taskgraph.decision
                             - $if: 'tasks_for == "cron"'
                               then:
                                 # cron context provides ${head_branch} as a short one
-                                - index.mobile.v2.${project}.branch.${head_branch}.latest.taskgraph.decision-${cron.job_name}
-                                - index.mobile.v2.${project}.branch.${head_branch}.revision.${head_sha}.taskgraph.decision-${cron.job_name}
-                                - index.mobile.v2.${project}.branch.${head_branch}.revision.${head_sha}.taskgraph.cron.${ownTaskId}
+                                - index.${trustDomain}.v2.${project}.branch.${head_branch}.latest.taskgraph.decision-${cron.job_name}
+                                - index.${trustDomain}.v2.${project}.branch.${head_branch}.revision.${head_sha}.taskgraph.decision-${cron.job_name}
+                                - index.${trustDomain}.v2.${project}.branch.${head_branch}.revision.${head_sha}.taskgraph.cron.${ownTaskId}
                 scopes:
                     $if: 'tasks_for == "github-push"'
                     then:
                         # `https://` is 8 characters so, ${repoUrl[8:]} is the repository without the protocol.
                         - 'assume:repo:${repoUrl[8:]}:branch:${short_head_branch}'
                     else:
-                        $if: 'tasks_for == "github-pull-request"'
+                        $if: 'isPullRequest'
                         then:
-                            - 'assume:repo:github.com/${event.pull_request.base.repo.full_name}:pull-request'
+                            - 'assume:repo:github.com/${event.pull_request.base.repo.full_name}:${tasks_for[7:]}'
                         else:
                             $if: 'tasks_for == "github-release"'
                             then:
-                                - 'assume:repo:${repoUrl[8:]}:release'
+                                - 'assume:repo:${repoUrl[8:]}:release:${releaseAction}'
                             else:
                                 $if: 'tasks_for == "action"'
                                 then:
@@ -206,7 +209,8 @@ tasks:
                               REPOSITORIES: {$json: {mobile: "Firefox for iOS"}}
                               HG_STORE_PATH: /builds/worker/checkouts/hg-store
                               ANDROID_SDK_ROOT: /builds/worker/android-sdk
-                            - $if: 'tasks_for in ["github-pull-request"]'
+                              TASKCLUSTER_CACHES: /builds/worker/checkouts
+                            - $if: 'isPullRequest'
                               then:
                                 MOBILE_PULL_REQUEST_NUMBER: '${event.pull_request.number}'
                             - $if: 'tasks_for == "action"'
@@ -218,6 +222,8 @@ tasks:
                             - $if: 'tasks_for == "github-release"'
                               then:
                                 MOBILE_HEAD_TAG: '${event.release.tag_name}'
+                    cache:
+                        "${trustDomain}-level-${level}-checkouts-v1": /builds/worker/checkouts
                     features:
                         taskclusterProxy: true
                         chainOfTrust: true
@@ -225,8 +231,7 @@ tasks:
                     # Note: This task is built server side without the context or tooling that
                     # exist in tree so we must hard code the hash
                     image:
-                        mozillareleases/taskgraph:decision-mobile-7e11b0cc3966ad9729e08b19551399b3343d3b385eac067b6335d4c34431a899@sha256:b309fa59efd59991ba286a326cb43b724c38e6f3872c52d0f85e96428899c2fc
-
+                        mozillareleases/taskgraph:decision-v13.1.0@sha256:8ff59a0d89e8fd7bbdc236cf1fb15e03be9ef67d7e74ed8ffe15f27765593ecd
                     maxRunTime: 1800
 
                     command:
@@ -242,10 +247,10 @@ tasks:
                               $if: 'tasks_for == "action"'
                               then: >
                                   ln -s /builds/worker/artifacts artifacts &&
-                                  ~/.local/bin/taskgraph action-callback
+                                  taskgraph action-callback
                               else: >
                                   ln -s /builds/worker/artifacts artifacts &&
-                                  ~/.local/bin/taskgraph decision
+                                  taskgraph decision
                                   --pushlog-id='0'
                                   --pushdate='0'
                                   --project='${project}'
@@ -281,7 +286,7 @@ tasks:
                             $merge:
                                 - machine:
                                     platform: gecko-decision
-                                - $if: 'tasks_for in ["github-push", "github-pull-request"]'
+                                - $if: 'tasks_for  == "github-push" || isPullRequest'
                                   then:
                                     symbol: D
                                   else:

@@ -1,0 +1,208 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/
+
+import Common
+import Redux
+import ToolbarKit
+
+struct ToolbarAction: Action {
+    let windowUUID: WindowUUID
+    let actionType: ActionType
+    let toolbarPosition: SearchBarPosition?
+    let toolbarLayout: ToolbarLayoutStyle?
+    let tabTrayButtonStyle: TabTrayButtonStyle?
+    let isTranslucent: Bool?
+    let url: URL?
+    let searchTerm: String?
+    let isPrivate: Bool?
+    let isShowingNavigationToolbar: Bool?
+    let isShowingTopTabs: Bool?
+    let canGoBack: Bool?
+    let canGoForward: Bool?
+    let canSummarize: Bool
+    let readerModeState: ReaderModeState?
+    let addressBorderPosition: AddressToolbarBorderPosition?
+    let displayNavBorder: Bool?
+    let hasOnlySecureContent: Bool?
+    let isWebsiteMode: Bool?
+    let safeListedURLImageName: String?
+    let isLoading: Bool?
+    let middleButton: NavigationBarMiddleButtonType?
+    let isTranslationsEnabled: Bool?
+    let translationConfiguration: TranslationConfiguration?
+    let isNovaDesignEnabled: Bool?
+
+    init(toolbarPosition: SearchBarPosition? = nil,
+         toolbarLayout: ToolbarLayoutStyle? = nil,
+         tabTrayButtonStyle: TabTrayButtonStyle? = nil,
+         isTranslucent: Bool? = nil,
+         url: URL? = nil,
+         searchTerm: String? = nil,
+         isPrivate: Bool? = nil,
+         isShowingNavigationToolbar: Bool? = nil,
+         isShowingTopTabs: Bool? = nil,
+         canGoBack: Bool? = nil,
+         canGoForward: Bool? = nil,
+         canSummarize: Bool = false,
+         readerModeState: ReaderModeState? = nil,
+         addressBorderPosition: AddressToolbarBorderPosition = .none,
+         displayNavBorder: Bool? = nil,
+         hasOnlySecureContent: Bool? = nil,
+         isWebsiteMode: Bool? = nil,
+         safeListedURLImageName: String? = nil,
+         isLoading: Bool? = nil,
+         shouldShowKeyboard: Bool? = nil,
+         middleButton: NavigationBarMiddleButtonType? = nil,
+         isTranslationsEnabled: Bool? = nil,
+         translationConfiguration: TranslationConfiguration? = nil,
+         isNovaDesignEnabled: Bool? = nil,
+         windowUUID: WindowUUID,
+         actionType: ActionType) {
+        self.windowUUID = windowUUID
+        self.actionType = actionType
+        self.toolbarPosition = toolbarPosition
+        self.toolbarLayout = toolbarLayout
+        self.tabTrayButtonStyle = tabTrayButtonStyle
+        self.isTranslucent = isTranslucent
+        self.url = url
+        self.searchTerm = searchTerm
+        self.isPrivate = isPrivate
+        self.isShowingNavigationToolbar = isShowingNavigationToolbar
+        self.isShowingTopTabs = isShowingTopTabs
+        self.canGoBack = canGoBack
+        self.canGoForward = canGoForward
+        self.readerModeState = readerModeState
+        self.addressBorderPosition = addressBorderPosition
+        self.displayNavBorder = displayNavBorder
+        self.hasOnlySecureContent = hasOnlySecureContent
+        self.isWebsiteMode = isWebsiteMode
+        self.safeListedURLImageName = safeListedURLImageName
+        self.isLoading = isLoading
+        self.canSummarize = canSummarize
+        self.middleButton = middleButton
+        self.isTranslationsEnabled = isTranslationsEnabled
+        self.translationConfiguration = translationConfiguration
+        self.isNovaDesignEnabled = isNovaDesignEnabled
+    }
+}
+
+enum ToolbarModernAction: ModernAction {
+    /// The user scrolled the page. `true` collapses the toolbar to the pill as the page
+    /// scrolls down; `false` restores it when scrolling back up.
+    case userDidScroll(minimizeAddressBar: Bool)
+
+    /// A web form's keyboard accessory view's visibility changed. Becoming visible also minimizes
+    /// the address bar. Restore address bar remains in `keyboardDidHide` so a scroll-minimized bar isn't force-reopened.
+    case accessoryViewVisibilityChanged(isVisible: Bool)
+
+    /// The keyboard was dismissed. Dispatched to restore the address bar after it was minimized by
+    /// `accessoryViewVisibilityChanged`.
+    case keyboardDidHide
+
+    /// Action fired when the keyboard state changes specifically whether
+    /// the address bar's keyboard should be shown while editing. shouldShow is `false` when the
+    /// keyboard hides (or a search engine is selected) while isEditing. `true` when the keyboard
+    /// genuinely finishes presenting while still editing. Also restores `shouldShowKeyboard` after it
+    /// was set to `false` by a path that doesn't fully leave overlay mode (like scrolling the
+    /// homepage mid-edit via `cancelEditOnHomepage`)
+    case didKeyboardRequestChange(shouldShow: Bool)
+
+    /// The user scrolled while editing. Cancels editing only if there's no committed website (Homepage),
+    /// otherwise just hides the keyboard (visually still looks like homepage but is zero search state)
+    case cancelEditOnHomepage
+
+    /// The user pasted text into the address bar, entering editing mode with the pasted term.
+    case didPasteSearchTerm(searchTerm: String?)
+
+    /// The number of tabs in the window changed.
+    case numberOfTabsChanged(count: Int)
+
+    /// Enables or disables address bar animations. Disabled by the tab tray and tab swipes, and stays
+    /// disabled until a non-homepage URL change or the next edit session re-enables it.
+    case animationStateChanged(shouldAnimate: Bool)
+
+    /// The toolbar blur preference changed, for example when Reduce Transparency is toggled.
+    case translucencyDidChange(isTranslucent: Bool)
+
+    /// The page's secure content status changed. `isWebsiteMode` is `false` for reader mode pages,
+    /// where the lock icon isn't shown. The lock icon itself is derived from these in the Lens.
+    case lockIconChanged(hasOnlySecureContent: Bool, isWebsiteMode: Bool)
+
+    /// The menu button's warning badge changed, for example when the account needs the user's attention.
+    case showMenuWarningBadge(isShown: Bool)
+
+    /// Whether the navigation contextual hint can be shown. Enabled by a double tap on a navigation button,
+    /// and disabled once the hint is dismissed.
+    case navigationHintAvailabilityChanged(canShow: Bool)
+
+    /// The screenshots of the tabs next to the selected tab were loaded, used for the tab swipe preview.
+    case didSetTabScreenshot(previousTabScreenshot: UIImage?, nextTabScreenshot: UIImage?)
+
+    /// The text in the address bar changed between empty and non-empty while editing. Only sent when
+    /// `isEmpty` differs from the current state, not on every keystroke.
+    case searchTermDidChange(isEmpty: Bool)
+}
+
+enum ToolbarActionType: ActionType {
+    case didLoadToolbars
+    case urlDidChange
+    case didSetTextInLocationView
+    case borderPositionChanged
+    case toolbarPositionChanged
+    case didStartEditingUrl
+    case cancelEdit
+    case readerModeStateChanged
+    case backForwardButtonStateChanged
+    case traitCollectionDidChange
+    case websiteLoadingStateDidChange
+    case searchEngineDidChange
+    case googleLensSettingDidChange
+    case clearSearch
+    case didSummarizeSettingsChange
+    // User submitted a search term to load the search request
+    case didSubmitSearchTerm
+    case didSetSearchTerm
+    case didStartTyping
+    case navigationMiddleButtonDidChange
+}
+
+struct ToolbarMiddlewareAction: Action {
+    let windowUUID: WindowUUID
+    let actionType: ActionType
+    let buttonType: ToolbarActionConfiguration.ActionType?
+    let buttonTapped: UIButton?
+    let gestureType: ToolbarButtonGesture?
+    let scrollOffset: CGPoint?
+    let readerModeState: ReaderModeState?
+    let isGoogleLensEnabled: Bool?
+
+    init(buttonType: ToolbarActionConfiguration.ActionType? = nil,
+         buttonTapped: UIButton? = nil,
+         gestureType: ToolbarButtonGesture? = nil,
+         scrollOffset: CGPoint? = nil,
+         readerModeState: ReaderModeState? = nil,
+         isGoogleLensEnabled: Bool? = nil,
+         windowUUID: WindowUUID,
+         actionType: ActionType) {
+        self.windowUUID = windowUUID
+        self.actionType = actionType
+        self.buttonType = buttonType
+        self.buttonTapped = buttonTapped
+        self.readerModeState = readerModeState
+        self.gestureType = gestureType
+        self.scrollOffset = scrollOffset
+        self.isGoogleLensEnabled = isGoogleLensEnabled
+    }
+}
+
+enum ToolbarMiddlewareActionType: ActionType {
+    case didTapButton
+    case customA11yAction
+    case urlDidChange
+    case googleLensAvailabilityDidChange
+    case didClearSearch
+    case didStartDragInteraction
+    case didSwipeToOpenTabTray
+    case loadSummaryState
+}

@@ -1,0 +1,191 @@
+// This Source Code Form is subject to the terms of the Mozilla Public
+// License, v. 2.0. If a copy of the MPL was not distributed with this
+// file, You can obtain one at http://mozilla.org/MPL/2.0/
+
+import MozillaAppServices
+import Common
+import Shared
+
+/// Describes public API for search engine selector wrapper for Application Services.
+protocol ASSearchEngineSelectorProtocol: Sendable {
+    /// Fetches search engines from Remote Settings based on the current locale and region.
+    /// - Parameters:
+    ///   - locale: the locale (e.g. 'en-US')
+    ///   - region: the region (e.g. 'US')
+    ///   - completion: a RefinedSearchConfig object describing the search engine results and/or an error.
+    func fetchSearchEngines(locale: String,
+                            region: String,
+                            completion: @escaping ((RefinedSearchConfig?, Error?) -> Void))
+
+    /// Fetches search engines from search-config-v3 Remote Settings collection based on the current locale and region.
+    /// Deprecated engines are removed and the application default engine is sorted to position 0.
+    /// - Parameters:
+    ///   - locale: the locale (e.g. 'en-US')
+    ///   - region: the region (e.g. 'US')
+    ///   - completion: a RefinedSearchConfigV3 object describing the search engine results and/or an error.
+    func fetchSearchEnginesV3(locale: String,
+                              region: String,
+                              completion: @escaping ((RefinedSearchConfigV3?, Error?) -> Void))
+}
+
+final class ASSearchEngineSelector: ASSearchEngineSelectorProtocol {
+    private let engineSelector = SearchEngineSelector()
+    private let service: RemoteSettingsService
+    private let logger: Logger
+
+    init(service: RemoteSettingsService, logger: Logger = DefaultLogger.shared) {
+        self.service = service
+        self.logger = logger
+    }
+
+    // MARK: - ASSearchEngineSelectorProtocol
+
+    func fetchSearchEngines(locale: String,
+                            region: String,
+                            completion: @escaping ((RefinedSearchConfig?, Error?) -> Void)) {
+        do {
+            engineSelector.useRemoteSettingsServer(service: service, applyEngineOverrides: false)
+
+            // Confirmed with AS team deviceType is currently unused. The UIDevice APIs are problematic for
+            // Swift 6 so for simplicity we just pass .smartphone. We can revisit this later if needed.
+            let deviceType: SearchDeviceType = .smartphone
+
+            let env = SearchUserEnvironment(locale: locale,
+                                            region: region,
+                                            updateChannel: SearchUpdateChannel.release,
+                                            distributionId: "",    // Confirmed with AS: leave empty, no distr on iOS
+                                            experiment: "",        // Confirmed with AS: leave empty
+                                            appName: .firefoxIos,
+                                            version: AppInfo.appVersion,
+                                            deviceType: deviceType)
+
+            // FXIOS-12307 For now we force a sync() when hitting any servers other than prod, otherwise we get API errors
+            // This should only impact QA and internal testing, not production.
+            let profile: Profile = AppContainer.shared.resolve()
+            let remoteSettingsEnvironmentKey =
+                profile.prefs.stringForKey(PrefsKeys.RemoteSettings.remoteSettingsEnvironment) ?? ""
+            let remoteSettingsEnv = RemoteSettingsEnvironment(rawValue: remoteSettingsEnvironmentKey) ?? .prod
+            let isProd = remoteSettingsEnv == .prod
+            if !isProd {
+                _ = try? profile.remoteSettingsService.sync()
+            }
+
+            var searchResultsConfig = try engineSelector.filterEngineConfiguration(userEnvironment: env)
+
+            let serverName: String = remoteSettingsEnv.rawValue.uppercased()
+            let engineLogList = searchResultsConfig.engines.map {
+                let isOptional = $0.optional ? " (OPTIONAL)" : ""
+                return $0.name + isOptional
+            }
+            logger.log("[SEC] Got search engines from \(serverName) for '\(locale)' and '\(region)': \(engineLogList)",
+                       level: .info,
+                       category: .remoteSettings)
+
+            // We want to be sure that our default engines list is always sorted with the default in position 0
+            // This is important in the case of new installs, for example, where the user does not have any
+            // search engine ordering preferences saved. Generally the `engines` should already be sorted this
+            // way but this code should be very fast on this small collection so we ensure the sort order here.
+            searchResultsConfig.sortDefaultEngineToIndex0()
+
+            completion(searchResultsConfig, nil)
+        } catch {
+            completion(nil, error)
+        }
+    }
+
+    func fetchSearchEnginesV3(locale: String,
+                              region: String,
+                              completion: @escaping ((RefinedSearchConfigV3?, Error?) -> Void)) {
+        do {
+            // Only the v3 collection is registered, so search-config-v2 is not synced while v3 is in use.
+            engineSelector.useRemoteSettingsServerV3(service: service)
+
+            let env = SearchUserEnvironmentV3(locale: locale,
+                                              region: region,
+                                              updateChannel: .release,
+                                              distributionId: "",
+                                              experiment: "",
+                                              appName: .firefoxIos,
+                                              version: AppInfo.appVersion,
+                                              deviceType: .smartphone)
+
+            let remoteSettingsEnv = syncIfNonProdEnvironment()
+            var searchResultsConfig = try engineSelector.filterEngineConfigurationV3(userEnvironment: env)
+
+            let serverName: String = remoteSettingsEnv.rawValue.uppercased()
+            let engineLogList = searchResultsConfig.engines.map {
+                let isOptional = $0.optional ? " (OPTIONAL)" : ""
+                let isDeprecated = $0.deprecated ? " (DEPRECATED)" : ""
+                return $0.name + isOptional + isDeprecated
+            }
+            logger.log("[SEC][v3] Got search engines from \(serverName) for '\(locale)' and '\(region)': \(engineLogList)",
+                       level: .info,
+                       category: .remoteSettings)
+
+            let removedEngineIDs = searchResultsConfig.removeDeprecatedEngines()
+            if !removedEngineIDs.isEmpty {
+                logger.log("[SEC][v3] Removed deprecated search engines: \(removedEngineIDs)",
+                           level: .info,
+                           category: .remoteSettings)
+            }
+
+            searchResultsConfig.sortDefaultEngineToIndex0()
+
+            completion(searchResultsConfig, nil)
+        } catch {
+            completion(nil, error)
+        }
+    }
+
+    /// FXIOS-12307 For now we force a sync() when hitting any servers other than prod, otherwise we get API errors.
+    /// This should only impact QA and internal testing, not production.
+    private func syncIfNonProdEnvironment() -> RemoteSettingsEnvironment {
+        let profile: Profile = AppContainer.shared.resolve()
+        let remoteSettingsEnvironmentKey =
+            profile.prefs.stringForKey(PrefsKeys.RemoteSettings.remoteSettingsEnvironment) ?? ""
+        let remoteSettingsEnv = RemoteSettingsEnvironment(rawValue: remoteSettingsEnvironmentKey) ?? .prod
+        if remoteSettingsEnv != .prod {
+            _ = try? profile.remoteSettingsService.sync()
+        }
+        return remoteSettingsEnv
+    }
+}
+
+extension RefinedSearchConfig {
+    /// Ensures that the default engine is always at position 0 in the engines list.
+    /// Per AS team we should not rely on the provided sort order of `engines`.
+    mutating func sortDefaultEngineToIndex0() {
+        guard let defaultEngineID = appDefaultEngineId,
+              let idx = engines.firstIndex(where: { $0.identifier == defaultEngineID }),
+              idx != 0 else { return }
+        let engine = engines[idx]
+        engines.remove(at: idx)
+        engines.insert(engine, at: 0)
+    }
+}
+
+extension RefinedSearchConfigV3 {
+    mutating func sortDefaultEngineToIndex0() {
+        guard let defaultEngineID = appDefaultEngineId,
+              let idx = engines.firstIndex(where: { $0.identifier == defaultEngineID }),
+              idx != 0 else { return }
+        let engine = engines[idx]
+        engines.remove(at: idx)
+        engines.insert(engine, at: 0)
+    }
+
+    @discardableResult
+    mutating func removeDeprecatedEngines() -> [String] {
+        let deprecatedIDs = engines.filter { $0.deprecated }.map { $0.identifier }
+        guard !deprecatedIDs.isEmpty else { return [] }
+
+        engines.removeAll { $0.deprecated }
+        if let defaultEngineID = appDefaultEngineId, deprecatedIDs.contains(defaultEngineID) {
+            appDefaultEngineId = nil
+        }
+        if let privateDefaultEngineID = appPrivateDefaultEngineId, deprecatedIDs.contains(privateDefaultEngineID) {
+            appPrivateDefaultEngineId = nil
+        }
+        return deprecatedIDs
+    }
+}
